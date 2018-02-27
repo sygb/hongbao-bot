@@ -1,8 +1,10 @@
-const {Wechaty, Room, Contact} = require('wechaty') 
+const {Wechaty, Room, Contact} = require('wechaty')
+const { getUrl, isIncludeUrl} = require("./utils")
 const axios = require("axios")
 
 const bot = Wechaty.instance({profile: 'dj940212'})
-let url = ""
+const self_name = "dj940212"  //当前用户名
+let urls = []   //红包链接
 
 bot
 .on('scan', (url, code)=>{
@@ -39,15 +41,12 @@ bot
           if (request.hello === 'ding') {
             logMsg = 'accepted because verify messsage is "ding"'
             request.accept()
-
           } else {
             logMsg = 'not auto accepted, because verify message is: ' + request.hello
           }
         } else {
           /**
-           *
            * 2. Friend Ship Confirmed
-           *
            */
           logMsg = 'friend ship confirmed with ' + contact.get('name')
         }
@@ -60,45 +59,59 @@ bot
 })
 
 .on('message', async m => {
+    /**
+     * [发送到文件助手或者发送给机器人]
+     */
+    if (m.to().name() !== "File Transfer" && m.to().name() !== self_name) { return }
 
-    if (!m.self() || m.to().name() !== "File Transfer") {
-        return
+    // 文件助手
+    const filehelper = await Contact.load('filehelper')
+    /**
+     * [检查链接]
+     */
+    if( isIncludeUrl(m.content()) ){
+        const url = getUrl(m.content())
+        urls.push(url)
+        console.log("红包数组：", urls)
+
+
+        //发送到机器人
+        if (m.to().name() === self_name) {
+            await m.from().say("填写手机号码领取红包")
+        }
+
+        //发送到文件助手
+        if (m.to().name() === "File Transfer") {
+            await filehelper.say("填写手机号码领取红包")
+        }
+
     }
 
-    if (/https:\/\/h5.ele.me\/hongbao/i.test(m.content())) {
-        const first = m.content().search(/https:\/\/h5.ele.me\/hongbao/i);
-        const last = m.content().search(/device_id=/i) + 10;
-        url = m.content().slice(first, last)
-        
-        console.log("红包： " + url)
-
-        const contact = await Contact.find({name: 'File Transfer'})         // change 'lijiarui' to any of your contact name in wechat
-        await contact.say("填写手机号码领取红包")
-
-        // const contacts = await Contact.findAll()
-        // contacts.forEach((contact) => {
-        //     console.log(contact.name())
-        // })  
-    }
-
+    //检查手机号码
     if (/^[1][3,4,5,7,8][0-9]{9}$/i.test(m.content())) {
         const mobile = m.content()
 
-        if (!url) {
-            const contact = await Contact.find({name: 'File Transfer'})         // change 'lijiarui' to any of your contact name in wechat
-            await contact.say("你没有发送红包")
-            return
+        if (!urls.length) return
+
+        console.log(urls[urls.length - 1], mobile)
+
+        let res = {}
+        try {
+            res = await axios.post('http://101.132.113.122:3007/hongbao', {url: urls[urls.length - 1], mobile})
+            urls.pop()
+        } catch (e) {
+            console.log(e)
         }
 
-        // const contact = await Contact.find({name: 'File Transfer'})         // change 'lijiarui' to any of your contact name in wechat
+        //发送到机器人
+        if (m.to().name() === self_name) {
+            await m.from().say(res.data.message)
+        }
 
-        console.log(url, mobile)
-        const res = await axios.post('http://192.168.0.112:3007/hongbao', {url, mobile})
-        console.log(res.data)
-
-        // const contact = await Contact.find({name: 'File Transfer'})
-        // await contact.say(res.data)
-
+        //发送到文件助手
+        if (m.to().name() === "File Transfer") {
+            await filehelper.say(res.data.message)
+        }
     }
 })
 
